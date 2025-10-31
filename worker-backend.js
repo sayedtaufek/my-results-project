@@ -92,14 +92,18 @@ app.post('/api/search', async (c) => {
 });
 
 
-// رفع بيانات الطلاب (يستقبل JSON جاهز)
+// رفع بيانات الطلاب (يستقبل JSON جاهز) - النسخة المحسنة
 app.post('/api/students/upload', async (c) => {
   try {
     const studentsData = await c.req.json();
+
     if (!Array.isArray(studentsData) || studentsData.length === 0) {
       return c.json({ error: 'لم يتم إرسال بيانات طلاب' }, 400);
     }
+
     const db = c.env.DB;
+
+    // إعداد دفعة واحدة من الأوامر لإرسالها لقاعدة البيانات
     const batchStatements = studentsData.map(student => {
       return db.prepare('INSERT OR REPLACE INTO students (student_id, name, grade, average, school_name, region) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(
@@ -107,8 +111,12 @@ app.post('/api/students/upload', async (c) => {
           parseFloat(student.average) || 0, student.school_name, student.region
         );
     });
+
+    // تنفيذ كل الأوامر في عملية واحدة سريعة جداً
     await db.batch(batchStatements);
+    
     return c.json({ success: true, message: `تم رفع بيانات ${studentsData.length} طالب بنجاح.` });
+
   } catch (error) {
     console.error('Upload error:', error);
     return c.json({ error: 'حدث خطأ داخلي أثناء حفظ البيانات', details: error.message }, 500);
