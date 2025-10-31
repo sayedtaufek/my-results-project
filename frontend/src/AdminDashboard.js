@@ -6,6 +6,7 @@ import NewsManagement from './NewsManagement';
 import AnalyticsManagement from './AnalyticsManagement';
 import NotificationManagement from './NotificationManagement';
 import HomepageBuilder from './HomepageBuilder';
+import * as XLSX from 'xlsx'; // <-- أضف هذا السطر
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -2829,70 +2830,53 @@ const UploadTab = ({ adminToken, onSuccess }) => {
     }
   }, []);
 
-  const handleFileUpload = async (file) => {
+const handleFileUpload = (file) => {
+    if (!file) return;
     if (!file.name.match(/\.(xlsx|xls)$/)) {
       alert('يرجى اختيار ملف Excel صالح (.xlsx أو .xls)');
       return;
     }
 
     setIsLoading(true);
-    const formData = new FormData();
-    formData.append('file', file);
+    setFileAnalysis(null); // Reset analysis
+    setUploadMessage('⏳ جاري قراءة الملف...'); // استخدم uploadMessage إذا كان موجوداً
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = e.target.result;
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-    try {
-      const response = await axios.post(`${API}/admin/upload-excel`, formData, {
-        headers: { 
-          'Content-Type': 'multipart/form-data',
-          Authorization: `Bearer ${adminToken}`
-        },
-        timeout: 300000, // 5 دقائق للملفات الكبيرة
-        onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          console.log(`Upload Progress: ${percentCompleted}%`);
+        if (jsonData.length === 0) {
+          alert('❌ خطأ: ملف الإكسيل فارغ.');
+          setIsLoading(false);
+          return;
         }
-      });
-      
-      setFileAnalysis(response.data);
-      
-      // تعيين الاقتراحات الذكية
-      const newMapping = { ...mapping };
-      Object.entries(response.data.suggested_mappings).forEach(([column, type]) => {
-        if (type === 'student_id' && !newMapping.student_id_column) {
-          newMapping.student_id_column = column;
-        } else if (type === 'name' && !newMapping.name_column) {
-          newMapping.name_column = column;
-        } else if (type === 'total' && !newMapping.total_column) {
-          newMapping.total_column = column;
-        } else if (type === 'class' && !newMapping.class_column) {
-          newMapping.class_column = column;
-        } else if (type === 'section' && !newMapping.section_column) {
-          newMapping.section_column = column;
-        } else if (type === 'subject') {
-          if (!newMapping.subject_columns.includes(column)) {
-            newMapping.subject_columns.push(column);
+
+        // إرسال بيانات JSON الجاهزة إلى الخادم
+        const response = await axios.post(`${API}/students/upload`, jsonData, {
+          headers: { 
+            Authorization: `Bearer ${adminToken}`,
+            'Content-Type': 'application/json' 
           }
-        }
-      });
-      setMapping(newMapping);
-      
-    } catch (error) {
-      console.error('خطأ في رفع الملف:', error);
-      let errorMessage = 'حدث خطأ في رفع الملف. يرجى المحاولة مرة أخرى.';
-      
-      if (error.response?.status === 413) {
-        errorMessage = error.response.data?.detail || 'حجم الملف كبير جداً. يرجى رفع ملف أصغر.';
-      } else if (error.response?.status === 400) {
-        errorMessage = error.response.data?.detail || 'تنسيق الملف غير صحيح.';
-      } else if (error.code === 'ECONNABORTED') {
-        errorMessage = 'انتهت مهلة الرفع. يرجى المحاولة مرة أخرى أو رفع ملف أصغر.';
-      }
-      
-      alert(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+        });
 
+        alert(`🎉 نجاح: ${response.data.message}`);
+        if (onSuccess) onSuccess(); // استدعاء الدالة للنجاح
+        
+      } catch (err) {
+        alert(`❌ فشل الرفع: ${err.response?.data?.error || err.message}`);
+        console.error(err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+  
   const handleFileInput = (e) => {
     if (e.target.files?.[0]) {
       handleFileUpload(e.target.files[0]);
