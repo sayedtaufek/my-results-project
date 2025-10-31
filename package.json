@@ -1,0 +1,23 @@
+{
+  "name": "student-results-worker",
+  "version": "1.0.0",
+  "description": "Student Results API Worker",
+  "main": "worker-backend.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "esbuild worker-backend.js --bundle --outfile=dist/worker.js --format=esm --platform=node --target=es2022"
+  },
+  "dependencies": {
+    "hono": "^3.12.0",
+    "jose": "^5.6.3",
+    "bcrypt-ts": "^5.0.2",
+    "zod": "^3.22.4",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.7",
+    "esbuild": "^0.19.11",
+    "wrangler": "^3.22.1"
+  }
+}

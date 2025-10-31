@@ -1,0 +1,178 @@
+/* إصلاح شامل لمشكلة النصوص غير المرئية في الحقول */
+
+/* Reset عام للحقول */
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+textarea,
+select {
+  color: #1f2937 !important;
+  background-color: #ffffff !important;
+  -webkit-text-fill-color: #1f2937 !important;
+  font-family: 'Tajawal', 'Cairo', 'Amiri', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  direction: rtl !important;
+  text-align: right !important;
+  border: 2px solid #e5e7eb !important;
+  border-radius: 8px !important;
+  padding: 8px 16px !important;
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+  transition: all 0.2s ease !important;
+}
+
+/* Placeholder styling */
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: #9ca3af !important;
+}
+
+/* Focus states */
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+select:focus {
+  color: #1f2937 !important;
+  background-color: #ffffff !important;
+  -webkit-text-fill-color: #1f2937 !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+  outline: none !important;
+}
+
+/* Hover states */
+input:not([type="checkbox"]):not([type="radio"]):hover,
+textarea:hover,
+select:hover {
+  border-color: #d1d5db !important;
+}
+
+/* Active states */
+input:not([type="checkbox"]):not([type="radio"]):active,
+textarea:active,
+select:active {
+  color: #1f2937 !important;
+  background-color: #ffffff !important;
+  -webkit-text-fill-color: #1f2937 !important;
+}
+
+/* Selection states */
+input:not([type="checkbox"]):not([type="radio"])::selection,
+textarea::selection {
+  background: #3b82f6 !important;
+  color: white !important;
+}
+
+/* Autofill fix */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px white inset !important;
+  -webkit-text-fill-color: #1f2937 !important;
+  color: #1f2937 !important;
+  background-color: white !important;
+}
+
+/* Select specific fixes */
+select {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  background-image: url("data:image/svg+xml;charset=US-ASCII,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 5'><path fill='%23666' d='M2 0L0 2h4zm0 5L0 3h4z'/></svg>") !important;
+  background-repeat: no-repeat !important;
+  background-position: left 12px center !important;
+  background-size: 12px !important;
+  padding-left: 40px !important;
+}
+
+select option {
+  color: #1f2937 !important;
+  background-color: white !important;
+  direction: rtl !important;
+}
+
+/* Disabled states */
+input:disabled,
+textarea:disabled,
+select:disabled {
+  color: #6b7280 !important;
+  background-color: #f3f4f6 !important;
+  -webkit-text-fill-color: #6b7280 !important;
+  cursor: not-allowed !important;
+  opacity: 0.6 !important;
+}
+
+/* Specific classes for admin panels */
+.admin-input,
+.form-control,
+.text-input {
+  color: #1f2937 !important;
+  background-color: #ffffff !important;
+  -webkit-text-fill-color: #1f2937 !important;
+}
+
+/* RTL specific fixes */
+[dir="rtl"] input,
+[dir="rtl"] textarea,
+[dir="rtl"] select {
+  text-align: right !important;
+  direction: rtl !important;
+}
+
+/* Browser specific fixes */
+@-moz-document url-prefix() {
+  input, textarea, select {
+    color: #1f2937 !important;
+    background-color: white !important;
+  }
+}
+
+/* Safari specific fixes */
+@media not all and (min-resolution:.001dpcm) {
+  @supports (-webkit-appearance:none) {
+    input, textarea, select {
+      color: #1f2937 !important;
+      background-color: white !important;
+      -webkit-text-fill-color: #1f2937 !important;
+    }
+  }
+}
+
+/* Edge specific fixes */
+@supports (-ms-ime-align:auto) {
+  input, textarea, select {
+    color: #1f2937 !important;
+    background-color: white !important;
+  }
+}
+
+/* Force visibility for all text inputs */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="url"],
+input[type="search"],
+input[type="tel"] {
+  color: #1f2937 !important;
+  background-color: white !important;
+  -webkit-text-fill-color: #1f2937 !important;
+  -webkit-opacity: 1 !important;
+  opacity: 1 !important;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  input, textarea, select {
+    color: #000000 !important;
+    background-color: #ffffff !important;
+    border: 2px solid #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  input, textarea, select {
+    transition: none !important;
+  }
+}

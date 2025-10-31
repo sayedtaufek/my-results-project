@@ -1,0 +1,1380 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
+import AdminDashboard from './AdminDashboard';
+import './App.css';
+import './InputFix.css';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+// مكونات المساعدة
+const LoadingSpinner = () => (
+  <div className="flex justify-center items-center p-8">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+  </div>
+);
+
+const ErrorAlert = ({ message, onClose }) => (
+  <div className="bg-red-50 border-r-4 border-red-400 p-4 mb-4 rounded-lg shadow-sm">
+    <div className="flex justify-between items-start">
+      <div className="flex">
+        <div className="flex-shrink-0">
+          <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          </svg>
+        </div>
+        <div className="mr-3">
+          <p className="text-sm text-red-700">{message}</p>
+        </div>
+      </div>
+      {onClose && (
+        <button onClick={onClose} className="text-red-400 hover:text-red-600">
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+const SuccessAlert = ({ message, onClose }) => (
+  <div className="bg-green-50 border-r-4 border-green-400 p-4 mb-4 rounded-lg shadow-sm">
+    <div className="flex justify-between items-start">
+      <div className="flex">
+        <div className="flex-shrink-0">
+          <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+        </div>
+        <div className="mr-3">
+          <p className="text-sm text-green-700">{message}</p>
+        </div>
+      </div>
+      {onClose && (
+        <button onClick={onClose} className="text-green-400 hover:text-green-600">
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+// مكون الصفحة الرئيسية العامة مع دعم المراحل التعليمية
+const PublicHomePage = ({ siteContent, onSearch, searchResults, onStudentSelect, onSchoolClick, onAdministrationClick }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchType, setSearchType] = useState('all');
+  const [isSearching, setIsSearching] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [educationalStages, setEducationalStages] = useState([]);
+  const [selectedStage, setSelectedStage] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState('');
+  const [availableRegions, setAvailableRegions] = useState([]);
+
+  useEffect(() => {
+    fetchEducationalStages();
+    fetchStats();
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [selectedStage, selectedRegion]);
+
+  useEffect(() => {
+    // تحديث المناطق المتاحة عند تغيير المرحلة
+    if (selectedStage) {
+      const stage = educationalStages.find(s => s.id === selectedStage);
+      setAvailableRegions(stage ? stage.regions : []);
+      setSelectedRegion(''); // إعادة تعيين المنطقة عند تغيير المرحلة
+    } else {
+      setAvailableRegions([]);
+      setSelectedRegion('');
+    }
+  }, [selectedStage, educationalStages]);
+
+  const fetchEducationalStages = async () => {
+    try {
+      const response = await axios.get(`${API}/stages`);
+      setEducationalStages(response.data);
+      // اختيار المرحلة الأولى افتراضياً
+      if (response.data.length > 0) {
+        setSelectedStage(response.data[0].id);
+      }
+    } catch (error) {
+      console.error('خطأ في جلب المراحل التعليمية:', error);
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (selectedStage) params.append('stage_id', selectedStage);
+      if (selectedRegion) params.append('region', selectedRegion);
+      
+      const response = await axios.get(`${API}/stats?${params}`);
+      setStats(response.data);
+    } catch (error) {
+      console.error('خطأ في جلب الإحصائيات:', error);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const response = await axios.post(`${API}/search`, {
+        query: searchQuery,
+        search_type: searchType,
+        educational_stage_id: selectedStage,
+        region_filter: selectedRegion
+      });
+      onSearch(response.data);
+    } catch (error) {
+      console.error('خطأ في البحث:', error);
+      alert('حدث خطأ في البحث');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
+  const getCurrentStage = () => {
+    return educationalStages.find(stage => stage.id === selectedStage);
+  };
+
+  if (!siteContent) {
+    return <LoadingSpinner />;
+  }
+
+  const currentStage = getCurrentStage();
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100" dir="rtl">
+      {/* Header */}
+      <header className="bg-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-20">
+            <div className="flex items-center space-x-reverse space-x-4">
+              <div className="flex-shrink-0">
+                <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                  {siteContent.page_title}
+                </h1>
+                <p className="text-sm text-gray-600">نظام متطور لإدارة والاستعلام عن نتائج الطلاب</p>
+              </div>
+            </div>
+            
+            <nav className="hidden md:flex space-x-reverse space-x-8">
+              <a href="#stages" className="text-gray-700 hover:text-blue-600 font-medium">المراحل التعليمية</a>
+              <a href="#search" className="text-gray-700 hover:text-blue-600 font-medium">البحث</a>
+              <a href="#about" className="text-gray-700 hover:text-blue-600 font-medium">حول النظام</a>
+              <a href="#contact" className="text-gray-700 hover:text-blue-600 font-medium">اتصل بنا</a>
+            </nav>
+          </div>
+        </div>
+      </header>
+
+      {/* Educational Stages Section */}
+      <section id="stages" className="py-12 px-4 bg-gradient-to-r from-indigo-50 to-purple-50">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">🎓 المراحل التعليمية المتاحة</h2>
+            <p className="text-lg text-gray-600">اختر المرحلة التعليمية للاستعلام عن النتائج</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+            {educationalStages.map((stage) => (
+              <div
+                key={stage.id}
+                onClick={() => handleStageClick(stage)}
+                className="relative bg-white rounded-2xl shadow-lg p-6 cursor-pointer transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl border-t-4"
+                style={{ borderTopColor: stage.color }}
+              >
+                <div className="text-center">
+                  <div className="text-4xl mb-3">{stage.icon}</div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-2">{stage.name}</h3>
+                  <p className="text-sm text-gray-600 mb-3">{stage.description}</p>
+                  <div className="text-xs text-gray-500">
+                    {stage.regions?.length || 0} محافظة
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Current Stage Info */}
+      {currentStage && (
+        <section className="py-8 px-4 bg-white border-b">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center justify-center space-x-reverse space-x-4">
+              <div className="text-3xl">{currentStage.icon}</div>
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-gray-900">{currentStage.name}</h2>
+                <p className="text-gray-600">{currentStage.description}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Statistics Section */}
+      {stats && currentStage && (
+        <section className="py-12 px-4">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">📊 إحصائيات {currentStage.name}</h2>
+              {selectedRegion && (
+                <p className="text-lg text-gray-600">محافظة {selectedRegion}</p>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition-shadow duration-300">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                    <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </div>
+                </div>
+                <h3 className="text-3xl font-bold text-gray-900 text-center mb-2">{stats.total_students}</h3>
+                <p className="text-gray-600 font-medium text-center">إجمالي الطلاب</p>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition-shadow duration-300">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    </svg>
+                  </div>
+                </div>
+                <h3 className="text-3xl font-bold text-gray-900 text-center mb-2">{stats.highest_score}</h3>
+                <p className="text-gray-600 font-medium text-center">أعلى درجة</p>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition-shadow duration-300">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
+                    <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </div>
+                </div>
+                <h3 className="text-3xl font-bold text-gray-900 text-center mb-2">{stats.average_score}%</h3>
+                <p className="text-gray-600 font-medium text-center">المتوسط العام</p>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition-shadow duration-300">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
+                    <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                    </svg>
+                  </div>
+                </div>
+                <h3 className="text-3xl font-bold text-gray-900 text-center mb-2">{stats.lowest_score}</h3>
+                <p className="text-gray-600 font-medium text-center">أقل درجة</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Search Section */}
+      <section id="search" className="py-20 px-4 bg-white">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-bold text-gray-900 mb-4">🔍 البحث عن النتائج</h2>
+            <p className="text-xl text-gray-600">ادخل رقم الجلوس أو اسم الطالب للحصول على النتائج فوراً</p>
+          </div>
+
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-3xl p-8 shadow-xl">
+            {/* فلاتر المرحلة والمحافظة */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">المرحلة التعليمية</label>
+                <select
+                  value={selectedStage}
+                  onChange={(e) => setSelectedStage(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-right"
+                >
+                  <option value="">جميع المراحل</option>
+                  {educationalStages.map(stage => (
+                    <option key={stage.id} value={stage.id}>
+                      {stage.icon} {stage.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">المحافظة</label>
+                <select
+                  value={selectedRegion}
+                  onChange={(e) => setSelectedRegion(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-right"
+                  disabled={!selectedStage}
+                >
+                  <option value="">جميع المحافظات</option>
+                  {availableRegions.map(region => (
+                    <option key={region} value={region}>{region}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* حقول البحث */}
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+              <div className="flex-1">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="ادخل رقم الجلوس أو اسم الطالب..."
+                  className="w-full px-6 py-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-right text-lg"
+                  style={{ color: '#1f2937', backgroundColor: 'white' }}
+                />
+              </div>
+              
+              <div className="md:w-48">
+                <select
+                  value={searchType}
+                  onChange={(e) => setSearchType(e.target.value)}
+                  className="w-full px-6 py-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-lg"
+                  style={{ color: '#1f2937', backgroundColor: 'white' }}
+                >
+                  <option value="all">الكل</option>
+                  <option value="student_id">رقم الجلوس</option>
+                  <option value="name">الاسم</option>
+                </select>
+              </div>
+              
+              <button
+                onClick={handleSearch}
+                disabled={isSearching || !searchQuery.trim()}
+                className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-bold rounded-2xl transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:-translate-y-1 disabled:transform-none text-lg"
+              >
+                {isSearching ? 'جاري البحث...' : 'بحث'}
+              </button>
+            </div>
+
+            {/* نتائج البحث */}
+            {searchResults && searchResults.length > 0 && (
+              <div className="mt-8">
+                <h3 className="text-2xl font-bold text-gray-900 mb-6">نتائج البحث ({searchResults.length})</h3>
+                <div className="grid gap-6">
+                  {searchResults.map((student, index) => (
+                    <div
+                      key={student.student_id || index}
+                      onClick={() => onStudentSelect(student)}
+                      className="bg-white p-6 border-2 border-gray-100 rounded-2xl hover:border-blue-300 hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:-translate-y-1"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h4 className="text-xl font-bold text-gray-900 mb-2">{student.name}</h4>
+                          <p className="text-gray-600 mb-1">رقم الجلوس: <span className="font-semibold">{student.student_id}</span></p>
+                          {student.region && (
+                            <p className="text-gray-600 mb-1">المحافظة: <span className="font-semibold">{student.region}</span></p>
+                          )}
+                          
+                          {/* المدرسة كرابط قابل للنقر */}
+                          {student.school_name && (
+                            <p className="text-gray-600 mb-1">
+                              المدرسة: 
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSchoolClick(student.school_name, student.educational_stage_id, student.region);
+                                }}
+                                className="font-semibold text-blue-600 hover:text-blue-800 underline hover:no-underline transition-colors mr-2"
+                              >
+                                {student.school_name}
+                              </button>
+                            </p>
+                          )}
+                          
+                          {/* الإدارة كرابط قابل للنقر */}
+                          {student.administration && (
+                            <p className="text-gray-600 mb-1">
+                              الإدارة: 
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onAdministrationClick(student.administration, student.educational_stage_id, student.region);
+                                }}
+                                className="font-semibold text-green-600 hover:text-green-800 underline hover:no-underline transition-colors mr-2"
+                              >
+                                {student.administration}
+                              </button>
+                            </p>
+                          )}
+                          
+                          {student.class_name && (
+                            <p className="text-gray-600">الفصل: <span className="font-semibold">{student.class_name}</span></p>
+                          )}
+                        </div>
+                        <div className="text-left">
+                          <div className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white px-4 py-2 rounded-xl">
+                            <p className="text-2xl font-bold">{student.average}%</p>
+                          </div>
+                          <p className="text-sm text-gray-600 mt-2 font-semibold">{student.grade}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {searchResults && searchResults.length === 0 && searchQuery && (
+              <div className="mt-8 text-center py-8">
+                <div className="text-6xl mb-4">😔</div>
+                <p className="text-xl text-gray-600">لم يتم العثور على نتائج للبحث "{searchQuery}"</p>
+                {currentStage && (
+                  <p className="text-gray-500 mt-2">في {currentStage.name} {selectedRegion && `- محافظة ${selectedRegion}`}</p>
+                )}
+                <p className="text-gray-500 mt-2">يرجى التأكد من رقم الجلوس أو الاسم والمحاولة مرة أخرى</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section id="about" className="py-20 px-4 bg-gray-50">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold text-gray-900 mb-4">✨ مميزات النظام</h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+              {siteContent.about_section}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            {siteContent.features?.map((feature, index) => (
+              <div key={index} className="bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition-shadow duration-300 text-center">
+                <div className="text-4xl mb-4">{feature.icon}</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-3">{feature.title}</h3>
+                <p className="text-gray-600 leading-relaxed">{feature.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer id="contact" className="bg-gradient-to-r from-gray-900 to-gray-800 text-white py-16">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+            <div>
+              <h3 className="text-2xl font-bold mb-4">📞 معلومات الاتصال</h3>
+              <div className="space-y-3">
+                <p>📱 الهاتف: {siteContent.contact_info?.phone}</p>
+                <p>📧 البريد الإلكتروني: {siteContent.contact_info?.email}</p>
+                <p>📍 العنوان: {siteContent.contact_info?.address}</p>
+              </div>
+            </div>
+            
+            <div>
+              <h3 className="text-2xl font-bold mb-4">🔗 روابط مهمة</h3>
+              <div className="space-y-3">
+                <a href="#search" className="block hover:text-blue-300 transition-colors">البحث عن النتائج</a>
+                <a href="#about" className="block hover:text-blue-300 transition-colors">حول النظام</a>
+                <a href="/admin" className="block hover:text-blue-300 transition-colors">دخول الإدارة</a>
+              </div>
+            </div>
+            
+            <div>
+              <h3 className="text-2xl font-bold mb-4">🌐 تابعنا</h3>
+              <div className="flex space-x-reverse space-x-4">
+                <a href={siteContent.social_links?.twitter} className="text-2xl hover:text-blue-300 transition-colors">🐦</a>
+                <a href={siteContent.social_links?.facebook} className="text-2xl hover:text-blue-300 transition-colors">📘</a>
+                <a href={siteContent.social_links?.instagram} className="text-2xl hover:text-blue-300 transition-colors">📷</a>
+              </div>
+            </div>
+          </div>
+          
+          <div className="border-t border-gray-700 mt-12 pt-8 text-center">
+            <p className="text-gray-300">{siteContent.footer_text}</p>
+            <p className="text-gray-400 mt-2 text-sm">الكلمات المفتاحية: {siteContent.seo_keywords}</p>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+// صفحة نتائج المدرسة
+const SchoolResultsPage = ({ students, schoolName, onBack, onStudentSelect }) => {
+  const stats = {
+    total: students.length,
+    passed: students.filter(s => s.average >= 60).length,
+    average: Math.round(students.reduce((sum, s) => sum + s.average, 0) / students.length),
+    highest: Math.max(...students.map(s => s.average)),
+    lowest: Math.min(...students.map(s => s.average))
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 py-8">
+      <div className="max-w-7xl mx-auto px-4">
+        {/* الرأس */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={onBack}
+              className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
+            >
+              ← العودة للبحث
+            </button>
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">🏫 {schoolName}</h1>
+              <p className="text-gray-600">نتائج جميع طلاب المدرسة</p>
+            </div>
+            <div></div>
+          </div>
+
+          {/* الإحصائيات */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="text-center p-4 bg-blue-50 rounded-xl">
+              <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
+              <p className="text-sm text-blue-800">إجمالي الطلاب</p>
+            </div>
+            <div className="text-center p-4 bg-green-50 rounded-xl">
+              <p className="text-2xl font-bold text-green-600">{stats.passed}</p>
+              <p className="text-sm text-green-800">الناجحون</p>
+            </div>
+            <div className="text-center p-4 bg-purple-50 rounded-xl">
+              <p className="text-2xl font-bold text-purple-600">{Math.round((stats.passed / stats.total) * 100)}%</p>
+              <p className="text-sm text-purple-800">معدل النجاح</p>
+            </div>
+            <div className="text-center p-4 bg-yellow-50 rounded-xl">
+              <p className="text-2xl font-bold text-yellow-600">{stats.highest}%</p>
+              <p className="text-sm text-yellow-800">أعلى درجة</p>
+            </div>
+            <div className="text-center p-4 bg-red-50 rounded-xl">
+              <p className="text-2xl font-bold text-red-600">{stats.lowest}%</p>
+              <p className="text-sm text-red-800">أقل درجة</p>
+            </div>
+          </div>
+        </div>
+
+        {/* قائمة الطلاب */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {students.map((student, index) => (
+            <div
+              key={student.student_id || index}
+              onClick={() => onStudentSelect(student)}
+              className="bg-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:-translate-y-1"
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">{student.name}</h3>
+                  <p className="text-sm text-gray-600">#{student.student_id}</p>
+                  {student.class_name && (
+                    <p className="text-sm text-gray-500">الفصل: {student.class_name}</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white px-3 py-2 rounded-xl">
+                    <p className="text-xl font-bold">{student.average}%</p>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">{student.grade}</p>
+                </div>
+              </div>
+              
+              {/* شريط التقدم */}
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-blue-500 to-indigo-500 h-2 rounded-full"
+                  style={{ width: `${student.average}%` }}
+                ></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// صفحة نتائج الإدارة
+const AdministrationResultsPage = ({ students, administrationName, onBack, onStudentSelect }) => {
+  const stats = {
+    total: students.length,
+    passed: students.filter(s => s.average >= 60).length,
+    average: Math.round(students.reduce((sum, s) => sum + s.average, 0) / students.length),
+    schools: [...new Set(students.map(s => s.school_name).filter(Boolean))].length
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 py-8">
+      <div className="max-w-7xl mx-auto px-4">
+        {/* الرأس */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={onBack}
+              className="flex items-center gap-2 text-green-600 hover:text-green-800 font-medium"
+            >
+              ← العودة للبحث
+            </button>
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">🏛️ {administrationName}</h1>
+              <p className="text-gray-600">نتائج جميع طلاب الإدارة التعليمية</p>
+            </div>
+            <div></div>
+          </div>
+
+          {/* الإحصائيات */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 bg-green-50 rounded-xl">
+              <p className="text-2xl font-bold text-green-600">{stats.total}</p>
+              <p className="text-sm text-green-800">إجمالي الطلاب</p>
+            </div>
+            <div className="text-center p-4 bg-blue-50 rounded-xl">
+              <p className="text-2xl font-bold text-blue-600">{stats.schools}</p>
+              <p className="text-sm text-blue-800">عدد المدارس</p>
+            </div>
+            <div className="text-center p-4 bg-purple-50 rounded-xl">
+              <p className="text-2xl font-bold text-purple-600">{stats.passed}</p>
+              <p className="text-sm text-purple-800">الناجحون</p>
+            </div>
+            <div className="text-center p-4 bg-yellow-50 rounded-xl">
+              <p className="text-2xl font-bold text-yellow-600">{Math.round((stats.passed / stats.total) * 100)}%</p>
+              <p className="text-sm text-yellow-800">معدل النجاح</p>
+            </div>
+          </div>
+        </div>
+
+        {/* قائمة الطلاب مجمعة حسب المدرسة */}
+        <div className="space-y-8">
+          {[...new Set(students.map(s => s.school_name).filter(Boolean))].map(schoolName => {
+            const schoolStudents = students.filter(s => s.school_name === schoolName);
+            return (
+              <div key={schoolName} className="bg-white rounded-2xl shadow-lg p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">🏫 {schoolName} ({schoolStudents.length} طالب)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {schoolStudents.map((student, index) => (
+                    <div
+                      key={student.student_id || index}
+                      onClick={() => onStudentSelect(student)}
+                      className="p-4 border border-gray-200 rounded-xl hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <h4 className="font-semibold text-gray-900">{student.name}</h4>
+                          <p className="text-sm text-gray-600">#{student.student_id}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-green-600">{student.average}%</p>
+                          <p className="text-xs text-gray-500">{student.grade}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// مكون عرض تفاصيل الطالب
+const StudentDetails = ({ student, onBack }) => {
+  const [showCertificate, setShowCertificate] = useState(false);
+  const [siteContent, setSiteContent] = useState(null);
+
+  useEffect(() => {
+    fetchSiteContent();
+  }, []);
+
+  const fetchSiteContent = async () => {
+    try {
+      const response = await axios.get(`${API}/content`);
+      setSiteContent(response.data);
+    } catch (error) {
+      console.error('خطأ في جلب محتوى الموقع:', error);
+    }
+  };
+
+  const generateCertificate = () => {
+    setShowCertificate(true);
+  };
+
+  const printCertificate = () => {
+    window.print();
+  };
+
+  const downloadCertificate = () => {
+    const printContent = document.getElementById('certificate-content');
+    if (printContent) {
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>شهادة نجاح - ${student.name}</title>
+            <style>
+              body { 
+                font-family: 'Arial', sans-serif; 
+                direction: rtl; 
+                margin: 0; 
+                padding: 20px;
+                background: white;
+              }
+              .certificate { 
+                width: 800px; 
+                margin: 0 auto; 
+                padding: 40px; 
+                border: 8px double #1e40af;
+                border-radius: 20px;
+                background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+              }
+              .no-print { display: none !important; }
+              @media print { 
+                body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+                .no-print { display: none !important; } 
+              }
+            </style>
+          </head>
+          <body>
+            ${printContent.innerHTML}
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+  const subjectColors = [
+    'from-red-500 to-red-600', 'from-blue-500 to-blue-600', 'from-green-500 to-green-600', 
+    'from-yellow-500 to-yellow-600', 'from-purple-500 to-purple-600', 'from-pink-500 to-pink-600', 
+    'from-indigo-500 to-indigo-600', 'from-teal-500 to-teal-600'
+  ];
+
+  const getScoreColor = (percentage) => {
+    if (percentage >= 90) return 'text-green-600';
+    if (percentage >= 80) return 'text-blue-600';
+    if (percentage >= 70) return 'text-yellow-600';
+    if (percentage >= 60) return 'text-orange-600';
+    return 'text-red-600';
+  };
+
+  const getGradeColor = (grade) => {
+    switch (grade) {
+      case 'ممتاز': return 'bg-green-100 text-green-800 border-green-200';
+      case 'جيد جداً': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'جيد': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'مقبول': return 'bg-orange-100 text-orange-800 border-orange-200';
+      default: return 'bg-red-100 text-red-800 border-red-200';
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4" dir="rtl">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            📊 بيانات الطالب التفصيلية
+          </h1>
+          <div className="flex gap-3">
+            <button
+              onClick={generateCertificate}
+              className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl"
+            >
+              🏆 إنشاء شهادة نجاح
+            </button>
+            <button
+              onClick={onBack}
+              className="px-6 py-3 bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl"
+            >
+              ← العودة للبحث
+            </button>
+          </div>
+        </div>
+
+        {/* معلومات الطالب الأساسية */}
+        <div className="bg-white rounded-3xl shadow-2xl p-8 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="text-center md:text-right">
+              <div className="bg-gradient-to-r from-blue-100 to-indigo-100 rounded-2xl p-6">
+                <h3 className="text-lg text-gray-600 mb-2">اسم الطالب</h3>
+                <p className="text-2xl font-bold text-gray-900">{student.name}</p>
+              </div>
+            </div>
+            
+            <div className="text-center md:text-right">
+              <div className="bg-gradient-to-r from-green-100 to-emerald-100 rounded-2xl p-6">
+                <h3 className="text-lg text-gray-600 mb-2">رقم الجلوس</h3>
+                <p className="text-2xl font-bold text-gray-900">{student.student_id}</p>
+              </div>
+            </div>
+            
+            {student.class_name && (
+              <div className="text-center md:text-right">
+                <div className="bg-gradient-to-r from-purple-100 to-violet-100 rounded-2xl p-6">
+                  <h3 className="text-lg text-gray-600 mb-2">الفصل</h3>
+                  <p className="text-2xl font-bold text-gray-900">{student.class_name}</p>
+                </div>
+              </div>
+            )}
+            
+            <div className="text-center md:text-right">
+              <div className="bg-gradient-to-r from-yellow-100 to-orange-100 rounded-2xl p-6">
+                <h3 className="text-lg text-gray-600 mb-2">المتوسط العام</h3>
+                <p className={`text-3xl font-bold ${getScoreColor(student.average)}`}>
+                  {student.average}%
+                </p>
+              </div>
+            </div>
+            
+            <div className="text-center md:text-right">
+              <div className="bg-gradient-to-r from-pink-100 to-rose-100 rounded-2xl p-6">
+                <h3 className="text-lg text-gray-600 mb-2">التقدير</h3>
+                <span className={`px-4 py-2 rounded-full text-lg font-bold border-2 ${getGradeColor(student.grade)}`}>
+                  {student.grade}
+                </span>
+              </div>
+            </div>
+            
+            {student.total_score && (
+              <div className="text-center md:text-right">
+                <div className="bg-gradient-to-r from-teal-100 to-cyan-100 rounded-2xl p-6">
+                  <h3 className="text-lg text-gray-600 mb-2">المجموع الكلي</h3>
+                  <p className="text-2xl font-bold text-gray-900">{student.total_score}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* درجات المواد */}
+        <div className="bg-white rounded-3xl shadow-2xl p-8">
+          <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">📚 درجات المواد التفصيلية</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {student.subjects?.map((subject, index) => (
+              <div key={subject.name} className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-100 rounded-2xl p-6 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold text-gray-900">{subject.name}</h3>
+                  <div className={`w-6 h-6 rounded-full bg-gradient-to-r ${subjectColors[index % subjectColors.length]}`}></div>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600 font-medium">الدرجة</span>
+                    <span className={`text-xl font-bold ${getScoreColor(subject.percentage)}`}>
+                      {subject.score} / {subject.max_score}
+                    </span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600 font-medium">النسبة المئوية</span>
+                    <span className={`text-xl font-bold ${getScoreColor(subject.percentage)}`}>
+                      {subject.percentage}%
+                    </span>
+                  </div>
+                  
+                  {/* شريط التقدم المحسن */}
+                  <div className="mt-4">
+                    <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                      <div
+                        className={`h-4 rounded-full transition-all duration-500 bg-gradient-to-r ${
+                          subject.percentage >= 90 ? 'from-green-400 to-green-600' :
+                          subject.percentage >= 80 ? 'from-blue-400 to-blue-600' :
+                          subject.percentage >= 70 ? 'from-yellow-400 to-yellow-600' :
+                          subject.percentage >= 60 ? 'from-orange-400 to-orange-600' : 'from-red-400 to-red-600'
+                        }`}
+                        style={{ width: `${subject.percentage}%` }}
+                      ></div>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>0%</span>
+                      <span>100%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* ملخص الأداء */}
+          <div className="mt-12 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-8 text-center">
+            <h3 className="text-2xl font-bold text-gray-900 mb-4">📈 ملخص الأداء الأكاديمي</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <p className="text-3xl font-bold text-blue-600">{student.subjects?.length || 0}</p>
+                <p className="text-gray-600 font-medium">عدد المواد</p>
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-green-600">{student.average}%</p>
+                <p className="text-gray-600 font-medium">المعدل العام</p>
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-purple-600">{student.grade}</p>
+                <p className="text-gray-600 font-medium">التقدير النهائي</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* شهادة النجاح */}
+        {showCertificate && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 no-print">
+            <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-gray-200 no-print">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xl font-bold text-gray-900">شهادة نجاح</h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={printCertificate}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"
+                    >
+                      📄 طباعة
+                    </button>
+                    <button
+                      onClick={downloadCertificate}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium"
+                    >
+                      📥 تحميل
+                    </button>
+                    <button
+                      onClick={() => setShowCertificate(false)}
+                      className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm font-medium"
+                    >
+                      ✕ إغلاق
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* محتوى الشهادة */}
+              <div id="certificate-content" className="p-12" dir="rtl" style={{backgroundColor: '#ffffff'}}>
+                <div className="border-8 border-double border-blue-600 rounded-3xl p-12 relative overflow-hidden">
+                  {/* زخارف الخلفية */}
+                  <div className="absolute top-8 left-8 text-6xl opacity-10">🌟</div>
+                  <div className="absolute top-8 right-8 text-6xl opacity-10">🏆</div>
+                  <div className="absolute bottom-8 left-8 text-6xl opacity-10">🎓</div>
+                  <div className="absolute bottom-8 right-8 text-6xl opacity-10">⭐</div>
+
+                  {/* الرأس */}
+                  <div className="text-center mb-8 relative z-10">
+                    <div className="w-24 h-24 bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-full mx-auto mb-6 flex items-center justify-center">
+                      <span className="text-4xl">🏆</span>
+                    </div>
+                    <h1 className="text-5xl font-bold text-blue-800 mb-4" style={{textShadow: '2px 2px 4px rgba(0,0,0,0.1)'}}>
+                      شــهــادة نــجــاح
+                    </h1>
+                    <div className="w-32 h-1 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-400 mx-auto rounded-full"></div>
+                  </div>
+
+                  {/* المحتوى */}
+                  <div className="text-center mb-8 relative z-10">
+                    <p className="text-2xl text-gray-700 mb-6 leading-relaxed">
+                      يقدم موقع <span className="font-bold text-blue-600">{siteContent?.site_name || 'نظام الاستعلام الذكي'}</span> بأسمى التهاني القلبية
+                    </p>
+                    
+                    <p className="text-xl text-gray-600 mb-6">للطالب/الطالبة المتميز/ة</p>
+                    
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-8 mb-6">
+                      <h2 className="text-4xl font-bold text-blue-800 mb-4">{student.name}</h2>
+                      <div className="grid grid-cols-2 gap-6 text-lg">
+                        <div>
+                          <span className="text-gray-600">رقم الجلوس: </span>
+                          <span className="font-bold text-blue-700">{student.student_id}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">المتوسط: </span>
+                          <span className="font-bold text-green-600 text-2xl">{student.average}%</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">التقدير: </span>
+                          <span className="font-bold text-purple-600">{student.grade}</span>
+                        </div>
+                        {student.total_score && (
+                          <div>
+                            <span className="text-gray-600">المجموع: </span>
+                            <span className="font-bold text-orange-600">{student.total_score}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-2xl text-gray-700 mb-4 leading-relaxed">
+                      لتفوقه في <span className="font-bold text-blue-600">المرحلة التعليمية</span>
+                    </p>
+                    
+                    <p className="text-2xl text-blue-600 font-semibold mb-8">
+                      ونتمنى له دوام النجاح والتفوق
+                    </p>
+
+                    {/* معلومات المدرسة */}
+                    {(student.school_name || student.administration) && (
+                      <div className="bg-gray-50 rounded-xl p-6 mb-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-lg">
+                          {student.school_name && (
+                            <div>
+                              <span className="text-gray-600">المدرسة: </span>
+                              <span className="font-semibold text-gray-800">{student.school_name}</span>
+                            </div>
+                          )}
+                          {student.administration && (
+                            <div>
+                              <span className="text-gray-600">الإدارة: </span>
+                              <span className="font-semibold text-gray-800">{student.administration}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* التوقيع */}
+                  <div className="flex justify-between items-end mt-12 pt-8 border-t-4 border-double border-blue-300 relative z-10">
+                    <div className="text-center">
+                      <div className="w-32 h-px bg-blue-400 mb-2 mx-auto"></div>
+                      <p className="text-lg font-semibold text-blue-700">تاريخ الإصدار</p>
+                      <p className="text-blue-600">{new Date().toLocaleDateString('ar-EG')}</p>
+                    </div>
+                    
+                    <div className="text-center">
+                      <div className="w-20 h-20 border-4 border-blue-300 rounded-full flex items-center justify-center mb-2 mx-auto bg-blue-50">
+                        <span className="text-blue-600 font-bold text-sm">الختم</span>
+                      </div>
+                    </div>
+                    
+                    <div className="text-center">
+                      <div className="w-32 h-px bg-blue-400 mb-2 mx-auto"></div>
+                      <p className="text-lg font-semibold text-blue-700">مع تحيات</p>
+                      <p className="text-blue-600 font-bold">إدارة موقع {siteContent?.site_name || 'نظام الاستعلام الذكي'}</p>
+                    </div>
+                  </div>
+
+                  {/* رقم الشهادة */}
+                  <div className="text-center mt-6 relative z-10">
+                    <p className="text-sm text-gray-500">
+                      رقم الشهادة: {student.student_id}-{new Date().getFullYear()}-{Math.random().toString(36).substr(2, 6).toUpperCase()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// مكون تسجيل دخول الأدمن
+const AdminLogin = ({ onLogin }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await axios.post(`${API}/admin/login`, {
+        username,
+        password
+      });
+
+      localStorage.setItem('admin_token', response.data.access_token);
+      onLogin(response.data);
+    } catch (error) {
+      console.error('خطأ في تسجيل الدخول:', error);
+      setError('اسم المستخدم أو كلمة المرور غير صحيحة');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-900 to-indigo-900 flex items-center justify-center p-4" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="w-20 h-20 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">🔐 دخول الإدارة</h1>
+          <p className="text-gray-600">ادخل بيانات المدير للوصول للوحة التحكم</p>
+        </div>
+
+        {error && <ErrorAlert message={error} onClose={() => setError('')} />}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              اسم المستخدم
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-right"
+              placeholder="ادخل اسم المستخدم"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              كلمة المرور
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-right"
+              placeholder="ادخل كلمة المرور"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl"
+          >
+            {isLoading ? 'جاري تسجيل الدخول...' : 'دخول'}
+          </button>
+        </form>
+
+        <div className="mt-8 text-center">
+          <p className="text-sm text-gray-600">
+            بيانات التجربة: admin / admin123
+          </p>
+          <button
+            onClick={() => window.location.href = '/'}
+            className="mt-4 text-blue-600 hover:text-blue-800 font-medium"
+          >
+            ← العودة للصفحة الرئيسية
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// المكون الرئيسي
+const App = () => {
+  const [currentView, setCurrentView] = useState('public'); // public, admin-login, admin-dashboard, student-details
+  const [siteContent, setSiteContent] = useState(null);
+  const [searchResults, setSearchResults] = useState(null);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [schoolResults, setSchoolResults] = useState(null);
+  const [administrationResults, setAdministrationResults] = useState(null);
+  const [currentSchoolName, setCurrentSchoolName] = useState('');
+  const [currentAdministrationName, setCurrentAdministrationName] = useState('');
+  const [currentStageName, setCurrentStageName] = useState('');
+  const [adminToken, setAdminToken] = useState(localStorage.getItem('admin_token'));
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // جلب محتوى الموقع
+  useEffect(() => {
+    fetchSiteContent();
+  }, []);
+
+  const fetchSiteContent = async () => {
+    try {
+      const response = await axios.get(`${API}/content`);
+      setSiteContent(response.data);
+      
+      // تحديث title و meta description
+      document.title = response.data.page_title;
+      const metaDescription = document.querySelector('meta[name="description"]');
+      if (metaDescription) {
+        metaDescription.setAttribute('content', response.data.meta_description);
+      }
+    } catch (error) {
+      console.error('خطأ في جلب محتوى الموقع:', error);
+    }
+  };
+
+  const handleAdminLogin = (loginData) => {
+    setAdminToken(loginData.access_token);
+    setCurrentView('admin-dashboard');
+    setSuccess('تم تسجيل الدخول بنجاح!');
+  };
+
+  const handleAdminLogout = () => {
+    localStorage.removeItem('admin_token');
+    setAdminToken(null);
+    setCurrentView('public');
+    setSuccess('تم تسجيل الخروج بنجاح!');
+  };
+
+  const handleSearch = (results) => {
+    setSearchResults(results);
+  };
+
+  const handleStageClick = (stage) => {
+    setCurrentView('stage-page');
+    setSelectedStage(stage.id);
+    setCurrentStageName(stage.name);
+  const handleStageClick = (stage) => {
+    setCurrentView('stage-page');
+    setSelectedStage(stage.id);
+    setCurrentStageName(stage.name);
+  };
+
+  const handleSchoolClick = async (schoolName, stageId, region) => {
+    try {
+      const params = new URLSearchParams();
+      if (stageId) params.append('educational_stage_id', stageId);
+      if (region) params.append('region', region);
+
+      const response = await axios.get(`${API}/school/${encodeURIComponent(schoolName)}/students?${params}`);
+      setSchoolResults(response.data.students);
+      setCurrentSchoolName(schoolName);
+      setCurrentView('school-results');
+    } catch (error) {
+      console.error('خطأ في جلب طلاب المدرسة:', error);
+      alert('خطأ في جلب بيانات المدرسة');
+    }
+  };
+
+  const handleAdministrationClick = async (administrationName, stageId, region) => {
+    try {
+      const params = new URLSearchParams();
+      if (stageId) params.append('educational_stage_id', stageId);
+      if (region) params.append('region', region);
+
+      // استخدام API البحث المتقدم للبحث حسب الإدارة
+      const response = await axios.post(`${API}/search`, {
+        query: '',
+        educational_stage_id: stageId,
+        region_filter: region,
+        administration_filter: administrationName,
+        search_fields: ['name', 'student_id']
+      });
+      
+      setAdministrationResults(response.data.students);
+      setCurrentAdministrationName(administrationName);
+      setCurrentView('administration-results');
+    } catch (error) {
+      console.error('خطأ في جلب طلاب الإدارة:', error);
+      alert('خطأ في جلب بيانات الإدارة');
+    }
+  };
+
+  const handleStudentSelect = (student) => {
+    setSelectedStudent(student);
+    setCurrentView('student-details');
+  };
+
+  const handleBackToPublic = () => {
+    setSelectedStudent(null);
+    setSearchResults(null);
+    setCurrentView('public');
+  };
+
+  // التحقق من المسار الحالي للتوجيه للأدمن
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path === '/admin' || path.startsWith('/admin')) {
+      if (adminToken) {
+        setCurrentView('admin-dashboard');
+      } else {
+        setCurrentView('admin-login');
+      }
+    }
+  }, [adminToken]);
+
+  return (
+    <div className="App">
+      {/* تنبيهات عامة */}
+      {error && (
+        <div className="fixed top-4 left-4 right-4 z-50">
+          <ErrorAlert message={error} onClose={() => setError('')} />
+        </div>
+      )}
+      
+      {success && (
+        <div className="fixed top-4 left-4 right-4 z-50">
+          <SuccessAlert message={success} onClose={() => setSuccess('')} />
+        </div>
+      )}
+
+      {/* المحتوى الرئيسي */}
+      {currentView === 'public' && (
+        <PublicHomePage 
+          siteContent={siteContent}
+          onSearch={handleSearch}
+          searchResults={searchResults}
+          onStudentSelect={handleStudentSelect}
+          onSchoolClick={handleSchoolClick}
+          onAdministrationClick={handleAdministrationClick}
+        />
+      )}
+
+      {currentView === 'student-details' && selectedStudent && (
+        <StudentDetails 
+          student={selectedStudent}
+          onBack={handleBackToPublic}
+        />
+      )}
+
+      {currentView === 'school-results' && schoolResults && (
+        <SchoolResultsPage
+          students={schoolResults}
+          schoolName={currentSchoolName}
+          onBack={handleBackToPublic}
+          onStudentSelect={handleStudentSelect}
+        />
+      )}
+
+      {currentView === 'administration-results' && administrationResults && (
+        <AdministrationResultsPage
+          students={administrationResults}
+          administrationName={currentAdministrationName}
+          onBack={handleBackToPublic}
+          onStudentSelect={handleStudentSelect}
+        />
+      )}
+
+      {currentView === 'admin-login' && (
+        <AdminLogin onLogin={handleAdminLogin} />
+      )}
+
+      {currentView === 'admin-dashboard' && adminToken && (
+        <AdminDashboard 
+          adminToken={adminToken}
+          onLogout={handleAdminLogout}
+        />
+      )}
+    </div>
+  );
+};
+
+export default App;

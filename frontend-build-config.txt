@@ -1,0 +1,21 @@
+# Frontend Build Configuration for Cloudflare Pages
+
+# Build command
+npm run build
+
+# Build output directory  
+dist
+
+# Environment variables for production
+REACT_APP_BACKEND_URL=https://api.yourdomain.com
+GENERATE_SOURCEMAP=false
+BUILD_PATH=dist
+
+# Node.js version
+NODE_VERSION=18
+
+# Install dependencies
+npm install
+
+# Build optimizations
+npm run build -- --optimize
