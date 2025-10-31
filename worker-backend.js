@@ -1,8 +1,22 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors'; // <-- 1. تم استيراد مكتبة CORS
 import * as jose from 'jose';
-import * as bcrypt from 'bcrypt-ts'; // استيراد المكتبة الجديدة
+import * as bcrypt from 'bcrypt-ts'; 
 
 const app = new Hono();
+
+// --- START: هذا هو الكود الجديد والمهم لإصلاح المشكلة ---
+// 2. تفعيل إعدادات CORS للسماح بالاتصال من الواجهة الأمامية
+app.use('/*', cors({
+  origin: [
+    'https://my-results-project2.pages.dev', // <-- تأكد أن هذا هو رابط موقعك الصحيح
+    'http://localhost:3000'                  // هذا للسماح بالتطوير على جهازك المحلي
+  ],
+  allowMethods: ['POST', 'GET', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization']
+}));
+// --- END: انتهى الكود الجديد ---
+
 
 const JWT_SECRET = 'your-super-secret-key-that-is-long-and-secure';
 const secret = new TextEncoder().encode(JWT_SECRET);
