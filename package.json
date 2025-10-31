@@ -1,25 +1,23 @@
 {
   "name": "student-results-worker",
   "version": "1.0.0",
-  "description": "Student Results API Worker",
-  "main": "worker-backend.js",
+  "private": true,
   "scripts": {
-    "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
     "build": "esbuild worker-backend.js --bundle --outfile=dist/worker.js --format=esm --platform=node --target=es2022"
   },
   "dependencies": {
     "bcrypt-ts": "^5.0.2",
-    "drizzle-orm": "^0.44.7",
-    "hono": "^3.12.0",
+    "drizzle-orm": "^0.31.2",
+    "hono": "^4.4.12",
     "jose": "^5.6.3",
-    "uuid": "^9.0.1",
-    "xlsx": "^0.18.5",
-    "zod": "^3.22.4"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/uuid": "^9.0.7",
-    "esbuild": "^0.19.11",
-    "wrangler": "^3.22.1"
+    "wrangler": "^3.60.3",
+    "drizzle-kit": "^0.22.7",
+    "esbuild": "^0.21.5"
   }
 }

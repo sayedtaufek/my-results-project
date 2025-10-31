@@ -1,10 +1,11 @@
 name = "student-results-backend"
 main = "dist/worker.js"
-compatibility_date = "2024-09-23" # <-- هذا هو التعديل الصحيح والنهائي
+compatibility_date = "2024-05-01"
 compatibility_flags = ["nodejs_compat"]
 
 [build]
 command = "npm run build"
+watch_dir = "."
 
 [[d1_databases]]
 binding = "DB"
