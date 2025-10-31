@@ -6,10 +6,10 @@ import NewsManagement from './NewsManagement';
 import AnalyticsManagement from './AnalyticsManagement';
 import NotificationManagement from './NotificationManagement';
 import HomepageBuilder from './HomepageBuilder';
-import * as XLSX from 'xlsx'; // <-- أضف هذا السطر
+import * as XLSX from 'xlsx';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const API = 'https://student-results-backend.modrsbook.workers.dev/api';
 
 // CSS إضافي لإصلاح مشكلة النصوص
 const inputFixStyle = {
@@ -2838,8 +2838,8 @@ const handleFileUpload = (file) => {
     }
 
     setIsLoading(true);
-    setFileAnalysis(null); // Reset analysis
-    setUploadMessage('⏳ جاري قراءة الملف...'); // استخدم uploadMessage إذا كان موجوداً
+    // استخدم المتغيرات الموجودة في المكون الأصلي
+    setFileAnalysis(null); 
     
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -2856,6 +2856,8 @@ const handleFileUpload = (file) => {
           return;
         }
 
+        alert(`✅ تم قراءة ${jsonData.length} طالب. جاري الرفع إلى الخادم...`);
+
         // إرسال بيانات JSON الجاهزة إلى الخادم
         const response = await axios.post(`${API}/students/upload`, jsonData, {
           headers: { 
@@ -2865,7 +2867,7 @@ const handleFileUpload = (file) => {
         });
 
         alert(`🎉 نجاح: ${response.data.message}`);
-        if (onSuccess) onSuccess(); // استدعاء الدالة للنجاح
+        if (onSuccess) onSuccess();
         
       } catch (err) {
         alert(`❌ فشل الرفع: ${err.response?.data?.error || err.message}`);
