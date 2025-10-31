@@ -10,7 +10,7 @@ import NewsPage from './NewsPage';
 import './App.css';
 import './InputFix.css';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = 'https://student-results-backend.modrsbook.workers.dev';
 const API = `${BACKEND_URL}/api`;
 
 // Subscription Form Component
