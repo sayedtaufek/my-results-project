@@ -1,171 +1,596 @@
-// --- START OF FILE worker-backend.js ---
-
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import * as jose from 'jose';
+import * as bcrypt from 'bcrypt-ts';
 import { drizzle } from 'drizzle-orm/d1';
 import { sql } from 'drizzle-orm';
 import { text, integer, sqliteTable } from 'drizzle-orm/sqlite-core';
 
 const app = new Hono();
 
-// تعريف الجداول يدوياً لكي يعمل Drizzle
+// ==================== Database Schema ====================
 const students = sqliteTable('students', {
-    id: integer('id').primaryKey(),
-    student_id: text('student_id').unique(),
-    name: text('name'),
-    grade: text('grade'),
-    average: integer('average'),
-    school_name: text('school_name'),
-    region: text('region'),
-    created_at: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  id: integer('id').primaryKey(),
+  studentid: text('studentid').unique(),
+  name: text('name'),
+  grade: text('grade'),
+  average: integer('average'),
+  schoolname: text('schoolname'),
+  region: text('region'),
+  educationalstageid: text('educationalstageid'),
+  classname: text('classname'),
+  administration: text('administration'),
+  schoolcode: text('schoolcode'),
+  section: text('section'),
+  subjects: text('subjects'), // JSON string
+  createdat: text('createdat').default(sql`CURRENT_TIMESTAMP`)
 });
 
 const users = sqliteTable('users', {
-    id: integer('id').primaryKey(),
-    username: text('username').unique(),
-    password: text('password'),
-    role: text('role'),
-    created_at: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  id: integer('id').primaryKey(),
+  username: text('username').unique(),
+  password: text('password'),
+  role: text('role'),
+  createdat: text('createdat').default(sql`CURRENT_TIMESTAMP`)
 });
 
-// إعدادات CORS
-app.use('/*', cors({
-  origin: '*', 
+const stages = sqliteTable('stages', {
+  id: integer('id').primaryKey(),
+  name: text('name'),
+  nameen: text('nameen'),
+  description: text('description'),
+  icon: text('icon'),
+  color: text('color'),
+  regions: text('regions'), // JSON array
+  displayorder: integer('displayorder'),
+  isactive: integer('isactive').default(1)
+});
+
+const content = sqliteTable('content', {
+  id: integer('id').primaryKey(),
+  pagetitle: text('pagetitle'),
+  metadescription: text('metadescription'),
+  seokeywords: text('seokeywords'),
+  herotitle: text('herotitle'),
+  herosubtitle: text('herosubtitle'),
+  aboutsection: text('aboutsection'),
+  features: text('features'), // JSON
+  footertext: text('footertext'),
+  contactinfo: text('contactinfo'), // JSON
+  sociallinks: text('sociallinks') // JSON
+});
+
+// ==================== CORS Configuration ====================
+app.use('*', cors({
+  origin: '*',
   allowMethods: ['POST', 'GET', 'OPTIONS', 'DELETE', 'PUT'],
   allowHeaders: ['Content-Type', 'Authorization']
 }));
 
-// ------------------- نقاط نهاية (Endpoints) حقيقية -------------------
+// ==================== JWT Configuration ====================
+const JWT_SECRET = 'your-super-secret-key-change-it-in-production';
+const secret = new TextEncoder().encode(JWT_SECRET);
 
-// نقطة نهاية لجلب الإحصائيات للوحة التحكم
-app.get('/api/stats', async (c) => {
-    const db = c.env.DB;
-    try {
-        const totalStudents = await db.prepare('SELECT COUNT(*) as count FROM students').first('count');
-        const highestScore = await db.prepare('SELECT MAX(average) as max_avg FROM students').first('max_avg');
-        const averageScore = await db.prepare('SELECT AVG(average) as avg_avg FROM students').first('avg_avg');
-        const lowestScore = await db.prepare('SELECT MIN(average) as min_avg FROM students').first('min_avg');
+// ==================== Auth Middleware ====================
+const authMiddleware = async (c, next) => {
+  const authHeader = c.req.header('Authorization');
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
 
-        return c.json({
-            total_students: totalStudents || 0,
-            highest_score: highestScore || 0,
-            average_score: Math.round(averageScore) || 0,
-            lowest_score: lowestScore || 0,
-        });
-    } catch (e) {
-        return c.json({ error: 'Failed to fetch stats', details: e.message }, 500);
-    }
-});
+  const token = authHeader.substring(7);
+  
+  try {
+    const { payload } = await jose.jwtVerify(token, secret);
+    c.set('user', payload);
+    await next();
+  } catch (e) {
+    return c.json({ error: 'Invalid token' }, 401);
+  }
+};
 
-// جلب الطلاب للوحة التحكم (مع pagination)
-app.get('/api/admin/students', async (c) => {
-    const db = c.env.DB;
-    const { limit = 5, offset = 0 } = c.req.query();
-    try {
-        const results = await db.prepare('SELECT * FROM students ORDER BY created_at DESC LIMIT ? OFFSET ?')
-            .bind(parseInt(limit), parseInt(offset))
-            .all();
-        const total = await db.prepare('SELECT COUNT(*) as count FROM students').first('count');
-        
-        return c.json({
-            students: results,
-            total: total || 0
-        });
-    } catch (e) {
-        return c.json({ error: 'Failed to fetch students', details: e.message }, 500);
-    }
-});
+// ==================== Public Endpoints ====================
 
-
-// البحث عن طالب (للموقع العام)
+// Search Students
 app.post('/api/search', async (c) => {
   const db = drizzle(c.env.DB);
-  const { query } = await c.req.json();
+  const body = await c.req.json();
+  const { 
+    query = '', 
+    searchtype = 'all',
+    educationalstageid = null,
+    regionfilter = null,
+    searchfields = ['name', 'studentid']
+  } = body;
+
   try {
-    const results = await db.select().from(students)
-      .where(sql`name LIKE ${'%' + query + '%'} OR student_id LIKE ${'%' + query + '%'}`)
+    let whereClause = [];
+
+    if (query && query.trim()) {
+      if (searchtype === 'studentid' || searchfields.includes('studentid')) {
+        whereClause.push(sql`studentid LIKE ${`%${query}%`}`);
+      }
+      if (searchtype === 'name' || searchtype === 'all' || searchfields.includes('name')) {
+        whereClause.push(sql`name LIKE ${`%${query}%`}`);
+      }
+    }
+
+    if (educationalstageid) {
+      whereClause.push(sql`educationalstageid = ${educationalstageid}`);
+    }
+
+    if (regionfilter) {
+      whereClause.push(sql`region = ${regionfilter}`);
+    }
+
+    const finalWhere = whereClause.length > 0 
+      ? sql.join(whereClause, sql` OR `)
+      : sql`1=1`;
+
+    const results = await db.select()
+      .from(students)
+      .where(finalWhere)
+      .limit(50)
       .all();
-    return c.json(results);
-  } catch (e) {
-    return c.json({ error: 'Failed to search students', details: e.message }, 500);
-  }
-});
 
+    // Parse subjects JSON for each student
+    const parsedResults = results.map(student => ({
+      ...student,
+      subjects: student.subjects ? JSON.parse(student.subjects) : []
+    }));
 
-// رفع بيانات الطلاب (يستقبل JSON جاهز) - النسخة المحسنة
-app.post('/api/students/upload', async (c) => {
-  try {
-    const studentsData = await c.req.json();
-
-    if (!Array.isArray(studentsData) || studentsData.length === 0) {
-      return c.json({ error: 'لم يتم إرسال بيانات طلاب' }, 400);
-    }
-
-    const db = c.env.DB;
-
-    // إعداد دفعة واحدة من الأوامر لإرسالها لقاعدة البيانات
-    const batchStatements = studentsData.map(student => {
-      return db.prepare('INSERT OR REPLACE INTO students (student_id, name, grade, average, school_name, region) VALUES (?, ?, ?, ?, ?, ?)')
-        .bind(
-          student.student_id, student.name, student.grade,
-          parseFloat(student.average) || 0, student.school_name, student.region
-        );
+    return c.json({ 
+      results: parsedResults, 
+      students: parsedResults, // للتوافق مع Frontend
+      count: parsedResults.length 
     });
-
-    // تنفيذ كل الأوامر في عملية واحدة سريعة جداً
-    await db.batch(batchStatements);
-    
-    return c.json({ success: true, message: `تم رفع بيانات ${studentsData.length} طالب بنجاح.` });
-
-  } catch (error) {
-    console.error('Upload error:', error);
-    return c.json({ error: 'حدث خطأ داخلي أثناء حفظ البيانات', details: error.message }, 500);
+  } catch (e) {
+    console.error('Search error:', e);
+    return c.json({ error: 'Failed to search', details: e.message }, 500);
   }
 });
 
+// Get Stages
+app.get('/api/stages', async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const results = await db.select()
+      .from(stages)
+      .where(sql`isactive = 1`)
+      .orderBy(stages.displayorder)
+      .all();
 
-// جلب قائمة المديرين
-app.get('/api/managers', async (c) => {
-    const db = drizzle(c.env.DB);
-    try {
-        const managers = await db.select({
-            id: users.id, username: users.username, role: users.role, created_at: users.created_at
-        }).from(users).all();
-        return c.json(managers);
-    } catch(e) {
-        return c.json({ error: 'Failed to fetch managers', details: e.message }, 500);
-    }
+    const parsedResults = results.map(stage => ({
+      ...stage,
+      regions: stage.regions ? JSON.parse(stage.regions) : []
+    }));
+
+    return c.json(parsedResults);
+  } catch (e) {
+    // إذا الجدول مش موجود، إرجاع بيانات افتراضية
+    return c.json([
+      {
+        id: '1',
+        name: 'الثانوية العامة',
+        nameen: 'General Secondary Certificate',
+        description: 'نتائج الثانوية العامة',
+        icon: '🎓',
+        color: '#3b82f6',
+        regions: ['القاهرة', 'الجيزة', 'الإسكندرية'],
+        displayorder: 1,
+        isactive: 1
+      },
+      {
+        id: '2',
+        name: 'الإعدادية',
+        nameen: 'Preparatory Certificate',
+        description: 'نتائج الشهادة الإعدادية',
+        icon: '📚',
+        color: '#10b981',
+        regions: ['القاهرة', 'الجيزة'],
+        displayorder: 2,
+        isactive: 1
+      }
+    ]);
+  }
 });
 
-// إضافة مدير جديد
-app.post('/api/managers', async (c) => {
-    const db = drizzle(c.env.DB);
-    // You'd add auth middleware here in a real app
-    const { username, password, role } = await c.req.json();
-    if (!username || !password || !role) return c.json({ error: 'Missing fields' }, 400);
-    try {
-        // We are not using bcrypt here for simplicity with Workers environment
-        await db.insert(users).values({ username, password: password, role }).run();
-        return c.json({ success: true, message: 'Manager added successfully' });
-    } catch (e) {
-        if (e.message.includes('UNIQUE')) return c.json({ error: 'اسم المستخدم هذا موجود بالفعل' }, 409);
-        return c.json({ error: 'Failed to add manager', details: e.message }, 500);
+// Get Content
+app.get('/api/content', async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const result = await db.select().from(content).limit(1).get();
+    
+    if (result) {
+      return c.json({
+        ...result,
+        features: result.features ? JSON.parse(result.features) : [],
+        contactinfo: result.contactinfo ? JSON.parse(result.contactinfo) : {},
+        sociallinks: result.sociallinks ? JSON.parse(result.sociallinks) : {}
+      });
     }
+  } catch (e) {
+    console.error('Content fetch error:', e);
+  }
+
+  // Default content
+  return c.json({
+    pagetitle: 'نظام نتائج الطلاب',
+    metadescription: 'استعلم عن نتائج الطلاب في جميع المراحل التعليمية',
+    seokeywords: 'نتائج,طلاب,امتحانات,شهادات',
+    herotitle: 'استعلم عن نتيجتك الآن',
+    herosubtitle: 'نتائج جميع المراحل التعليمية',
+    aboutsection: 'نظام متطور للاستعلام عن النتائج',
+    features: [
+      { title: 'بحث سريع', description: 'استعلام فوري', icon: '⚡' },
+      { title: 'نتائج دقيقة', description: 'بيانات محدثة', icon: '✅' }
+    ],
+    footertext: '© 2025 جميع الحقوق محفوظة',
+    contactinfo: {},
+    sociallinks: {}
+  });
 });
 
+// Get Statistics
+app.get('/api/stats', async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const totalStudents = await db.select({ count: sql`count(*)` })
+      .from(students)
+      .get();
+    
+    const highestScore = await db.select({ max: sql`max(average)` })
+      .from(students)
+      .get();
+    
+    const lowestScore = await db.select({ min: sql`min(average)` })
+      .from(students)
+      .get();
+    
+    const avgScore = await db.select({ avg: sql`avg(average)` })
+      .from(students)
+      .get();
 
-// نقاط نهاية وهمية للبيانات الثابتة
-app.get('/api/content', (c) => c.json({ page_title: "نظام نتائج الطلاب الذكي" }));
-app.get('/api/stages', (c) => c.json([ { id: 'primary', name: "المرحلة الابتدائية", regions: ["القاهرة"] } ]));
+    return c.json({
+      totalstudents: totalStudents?.count || 0,
+      highestscore: highestScore?.max || 0,
+      lowestscore: lowestScore?.min || 0,
+      averagescore: Math.round(avgScore?.avg || 0)
+    });
+  } catch (e) {
+    return c.json({
+      totalstudents: 0,
+      highestscore: 0,
+      lowestscore: 0,
+      averagescore: 0
+    });
+  }
+});
 
-// تسجيل دخول الأدمن (بدون تشفير للتبسيط)
+// ==================== Admin Authentication ====================
+
 app.post('/api/admin/login', async (c) => {
   const { username, password } = await c.req.json();
-  // In a real app, you would fetch the user from the DB and compare hashed passwords
+  
+  // TODO: استبدل بالتحقق من قاعدة البيانات
   if (username === 'admin' && password === 'admin123') {
-    return c.json({ success: true, access_token: "fake-token-for-testing" });
+    const token = await new jose.SignJWT({ username: 'admin', role: 'admin' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('8h')
+      .sign(secret);
+
+    return c.json({ 
+      success: true, 
+      accesstoken: token 
+    });
   }
+
   return c.json({ success: false, message: 'Invalid credentials' }, 401);
+});
+
+// ==================== Admin Protected Endpoints ====================
+
+// Get All Students (Admin)
+app.get('/api/admin/students', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const { skip = '0', limit = '10' } = c.req.query();
+  
+  try {
+    const results = await db.select()
+      .from(students)
+      .limit(parseInt(limit))
+      .offset(parseInt(skip))
+      .all();
+
+    const total = await db.select({ count: sql`count(*)` })
+      .from(students)
+      .get();
+
+    const parsedResults = results.map(student => ({
+      ...student,
+      subjects: student.subjects ? JSON.parse(student.subjects) : []
+    }));
+
+    return c.json({ 
+      students: parsedResults, 
+      total: total?.count || 0 
+    });
+  } catch (e) {
+    return c.json({ error: 'Failed to fetch students', details: e.message }, 500);
+  }
+});
+
+// Delete Student
+app.delete('/api/admin/students/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  
+  try {
+    await db.delete(students)
+      .where(sql`studentid = ${id}`)
+      .run();
+
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: 'Failed to delete student', details: e.message }, 500);
+  }
+});
+
+// Delete All Students
+app.delete('/api/admin/students', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    await db.delete(students).run();
+    return c.json({ success: true, message: 'All students deleted' });
+  } catch (e) {
+    return c.json({ error: 'Failed to delete all students', details: e.message }, 500);
+  }
+});
+
+// Upload Excel Data (Process)
+app.post('/api/students/upload', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const studentsData = await c.req.json();
+
+  if (!Array.isArray(studentsData) || studentsData.length === 0) {
+    return c.json({ error: 'Invalid data format' }, 400);
+  }
+
+  try {
+    const insertPromises = studentsData.map(student => {
+      const subjectsJson = JSON.stringify(student.subjects || []);
+      
+      return db.run(sql`
+        INSERT OR REPLACE INTO students 
+        (studentid, name, grade, average, schoolname, region, 
+         educationalstageid, classname, administration, schoolcode, 
+         section, subjects, createdat)
+        VALUES (
+          ${student.studentid},
+          ${student.name},
+          ${student.grade},
+          ${parseFloat(student.average) || 0},
+          ${student.schoolname || ''},
+          ${student.region || ''},
+          ${student.educationalstageid || ''},
+          ${student.classname || ''},
+          ${student.administration || ''},
+          ${student.schoolcode || ''},
+          ${student.section || ''},
+          ${subjectsJson},
+          ${student.createdat || new Date().toISOString()}
+        )
+      `);
+    });
+
+    await Promise.all(insertPromises);
+
+    return c.json({ 
+      success: true, 
+      message: `تم رفع ${studentsData.length} طالب بنجاح`,
+      totalprocessed: studentsData.length
+    });
+  } catch (error) {
+    console.error('Upload error:', error);
+    return c.json({ 
+      error: 'فشل رفع البيانات', 
+      details: error.message 
+    }, 500);
+  }
+});
+
+// Process Excel with Mapping
+app.post('/api/admin/process-excel', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const mapping = await c.req.json();
+  const { filehash, educationalstageid, region } = c.req.query();
+
+  // في الواقع، ستحتاج لتخزين بيانات Excel مؤقتاً
+  // هنا مثال بسيط - يفترض أن البيانات تُرسل مباشرة
+  
+  return c.json({ 
+    success: true, 
+    message: 'Excel processing endpoint ready',
+    note: 'يحتاج implementation كامل مع file storage'
+  });
+});
+
+// Stages Management
+app.get('/api/admin/stages', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const results = await db.select()
+      .from(stages)
+      .orderBy(stages.displayorder)
+      .all();
+
+    const parsedResults = results.map(stage => ({
+      ...stage,
+      regions: stage.regions ? JSON.parse(stage.regions) : []
+    }));
+
+    return c.json(parsedResults);
+  } catch (e) {
+    return c.json([]);
+  }
+});
+
+app.post('/api/admin/stages', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const stageData = await c.req.json();
+
+  try {
+    const regionsJson = JSON.stringify(stageData.regions || []);
+
+    await db.run(sql`
+      INSERT INTO stages (name, nameen, description, icon, color, regions, displayorder, isactive)
+      VALUES (
+        ${stageData.name},
+        ${stageData.nameen},
+        ${stageData.description || ''},
+        ${stageData.icon || '📚'},
+        ${stageData.color || '#3b82f6'},
+        ${regionsJson},
+        ${stageData.displayorder || 0},
+        1
+      )
+    `);
+
+    return c.json({ success: true, message: 'تم إضافة المرحلة بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to add stage', details: e.message }, 500);
+  }
+});
+
+app.put('/api/admin/stages/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  const stageData = await c.req.json();
+
+  try {
+    const regionsJson = JSON.stringify(stageData.regions || []);
+
+    await db.run(sql`
+      UPDATE stages 
+      SET name = ${stageData.name},
+          nameen = ${stageData.nameen},
+          description = ${stageData.description || ''},
+          icon = ${stageData.icon || '📚'},
+          color = ${stageData.color || '#3b82f6'},
+          regions = ${regionsJson},
+          displayorder = ${stageData.displayorder || 0}
+      WHERE id = ${id}
+    `);
+
+    return c.json({ success: true, message: 'تم تحديث المرحلة بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to update stage', details: e.message }, 500);
+  }
+});
+
+app.delete('/api/admin/stages/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+
+  try {
+    await db.delete(stages).where(sql`id = ${id}`).run();
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: 'Failed to delete stage', details: e.message }, 500);
+  }
+});
+
+// Content Management
+app.get('/api/admin/content', authMiddleware, async (c) => {
+  // Same as public /api/content but requires auth
+  return app.fetch(new Request(c.req.url.replace('/admin/content', '/content')));
+});
+
+app.put('/api/admin/content', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const contentData = await c.req.json();
+
+  try {
+    const featuresJson = JSON.stringify(contentData.features || []);
+    const contactinfoJson = JSON.stringify(contentData.contactinfo || {});
+    const sociallinksJson = JSON.stringify(contentData.sociallinks || {});
+
+    // Check if content exists
+    const existing = await db.select().from(content).limit(1).get();
+
+    if (existing) {
+      await db.run(sql`
+        UPDATE content 
+        SET pagetitle = ${contentData.pagetitle},
+            metadescription = ${contentData.metadescription},
+            seokeywords = ${contentData.seokeywords},
+            herotitle = ${contentData.herotitle},
+            herosubtitle = ${contentData.herosubtitle},
+            aboutsection = ${contentData.aboutsection},
+            features = ${featuresJson},
+            footertext = ${contentData.footertext},
+            contactinfo = ${contactinfoJson},
+            sociallinks = ${sociallinksJson}
+        WHERE id = ${existing.id}
+      `);
+    } else {
+      await db.run(sql`
+        INSERT INTO content 
+        (pagetitle, metadescription, seokeywords, herotitle, herosubtitle, 
+         aboutsection, features, footertext, contactinfo, sociallinks)
+        VALUES (
+          ${contentData.pagetitle},
+          ${contentData.metadescription},
+          ${contentData.seokeywords},
+          ${contentData.herotitle},
+          ${contentData.herosubtitle},
+          ${contentData.aboutsection},
+          ${featuresJson},
+          ${contentData.footertext},
+          ${contactinfoJson},
+          ${sociallinksJson}
+        )
+      `);
+    }
+
+    return c.json({ success: true, message: 'تم تحديث المحتوى بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to update content', details: e.message }, 500);
+  }
+});
+
+// ==================== Health Check ====================
+app.get('/', (c) => {
+  return c.json({ 
+    status: 'ok', 
+    message: 'Student Results API is running',
+    version: '2.0',
+    endpoints: {
+      public: [
+        'GET /api/stages',
+        'POST /api/search',
+        'GET /api/content',
+        'GET /api/stats'
+      ],
+      admin: [
+        'POST /api/admin/login',
+        'GET /api/admin/students',
+        'POST /api/students/upload',
+        'DELETE /api/admin/students/:id',
+        'GET /api/admin/stages',
+        'POST /api/admin/stages',
+        'PUT /api/admin/stages/:id',
+        'DELETE /api/admin/stages/:id'
+      ]
+    }
+  });
 });
 
 export default app;
