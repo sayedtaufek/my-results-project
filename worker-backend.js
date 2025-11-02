@@ -60,6 +60,32 @@ const content = sqliteTable('content', {
   sociallinks: text('sociallinks') // JSON
 });
 
+const faqs = sqliteTable('faqs', {
+  id: integer('id').primaryKey(),
+  question: text('question'),
+  answer: text('answer'),
+  category: text('category'),
+  displayorder: integer('displayorder'),
+  isactive: integer('isactive').default(1)
+});
+
+const guides = sqliteTable('guides', {
+  id: integer('id').primaryKey(),
+  title: text('title'),
+  content: text('content'),
+  icon: text('icon'),
+  displayorder: integer('displayorder'),
+  isactive: integer('isactive').default(1)
+});
+
+const news = sqliteTable('news', {
+  id: integer('id').primaryKey(),
+  title: text('title'),
+  content: text('content'),
+  publishdate: text('publishdate'),
+  isactive: integer('isactive').default(1)
+});
+
 // ==================== CORS Configuration ====================
 app.use('*', cors({
   origin: '*',
@@ -74,13 +100,11 @@ const secret = new TextEncoder().encode(JWT_SECRET);
 // ==================== Auth Middleware ====================
 const authMiddleware = async (c, next) => {
   const authHeader = c.req.header('Authorization');
-  
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
-
-  const token = authHeader.substring(7);
   
+  const token = authHeader.substring(7);
   try {
     const { payload } = await jose.jwtVerify(token, secret);
     c.set('user', payload);
@@ -92,12 +116,26 @@ const authMiddleware = async (c, next) => {
 
 // ==================== Public Endpoints ====================
 
+// Health Check
+app.get('/', (c) => {
+  return c.json({
+    status: 'ok',
+    message: 'Student Results API is running',
+    version: '3.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/health', (c) => {
+  return c.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Search Students
 app.post('/api/search', async (c) => {
   const db = drizzle(c.env.DB);
   const body = await c.req.json();
-  const { 
-    query = '', 
+  const {
+    query = '',
     searchtype = 'all',
     educationalstageid = null,
     regionfilter = null,
@@ -106,7 +144,7 @@ app.post('/api/search', async (c) => {
 
   try {
     let whereClause = [];
-
+    
     if (query && query.trim()) {
       if (searchtype === 'studentid' || searchfields.includes('studentid')) {
         whereClause.push(sql`studentid LIKE ${`%${query}%`}`);
@@ -115,35 +153,34 @@ app.post('/api/search', async (c) => {
         whereClause.push(sql`name LIKE ${`%${query}%`}`);
       }
     }
-
+    
     if (educationalstageid) {
       whereClause.push(sql`educationalstageid = ${educationalstageid}`);
     }
-
+    
     if (regionfilter) {
       whereClause.push(sql`region = ${regionfilter}`);
     }
-
+    
     const finalWhere = whereClause.length > 0 
       ? sql.join(whereClause, sql` OR `)
       : sql`1=1`;
-
+      
     const results = await db.select()
       .from(students)
       .where(finalWhere)
       .limit(50)
       .all();
 
-    // Parse subjects JSON for each student
     const parsedResults = results.map(student => ({
       ...student,
       subjects: student.subjects ? JSON.parse(student.subjects) : []
     }));
 
-    return c.json({ 
-      results: parsedResults, 
-      students: parsedResults, // للتوافق مع Frontend
-      count: parsedResults.length 
+    return c.json({
+      results: parsedResults,
+      students: parsedResults,
+      count: parsedResults.length
     });
   } catch (e) {
     console.error('Search error:', e);
@@ -169,7 +206,6 @@ app.get('/api/stages', async (c) => {
 
     return c.json(parsedResults);
   } catch (e) {
-    // إذا الجدول مش موجود، إرجاع بيانات افتراضية
     return c.json([
       {
         id: '1',
@@ -215,8 +251,7 @@ app.get('/api/content', async (c) => {
   } catch (e) {
     console.error('Content fetch error:', e);
   }
-
-  // Default content
+  
   return c.json({
     pagetitle: 'نظام نتائج الطلاب',
     metadescription: 'استعلم عن نتائج الطلاب في جميع المراحل التعليمية',
@@ -234,6 +269,58 @@ app.get('/api/content', async (c) => {
   });
 });
 
+// Get FAQs
+app.get('/api/faqs', async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const results = await db.select()
+      .from(faqs)
+      .where(sql`isactive = 1`)
+      .orderBy(faqs.displayorder)
+      .all();
+    
+    return c.json(results);
+  } catch (e) {
+    return c.json([]);
+  }
+});
+
+// Get Guides
+app.get('/api/guides', async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const results = await db.select()
+      .from(guides)
+      .where(sql`isactive = 1`)
+      .orderBy(guides.displayorder)
+      .all();
+    
+    return c.json(results);
+  } catch (e) {
+    return c.json([]);
+  }
+});
+
+// Get News
+app.get('/api/news', async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const results = await db.select()
+      .from(news)
+      .where(sql`isactive = 1`)
+      .orderBy(sql`publishdate DESC`)
+      .limit(10)
+      .all();
+    
+    return c.json(results);
+  } catch (e) {
+    return c.json([]);
+  }
+});
+
 // Get Statistics
 app.get('/api/stats', async (c) => {
   const db = drizzle(c.env.DB);
@@ -242,15 +329,15 @@ app.get('/api/stats', async (c) => {
     const totalStudents = await db.select({ count: sql`count(*)` })
       .from(students)
       .get();
-    
+      
     const highestScore = await db.select({ max: sql`max(average)` })
       .from(students)
       .get();
-    
+      
     const lowestScore = await db.select({ min: sql`min(average)` })
       .from(students)
       .get();
-    
+      
     const avgScore = await db.select({ avg: sql`avg(average)` })
       .from(students)
       .get();
@@ -272,11 +359,38 @@ app.get('/api/stats', async (c) => {
 });
 
 // ==================== Admin Authentication ====================
-
 app.post('/api/admin/login', async (c) => {
+  const db = drizzle(c.env.DB);
   const { username, password } = await c.req.json();
   
-  // TODO: استبدل بالتحقق من قاعدة البيانات
+  try {
+    const user = await db.select()
+      .from(users)
+      .where(sql`username = ${username}`)
+      .limit(1)
+      .get();
+    
+    if (user && bcrypt.compareSync(password, user.password)) {
+      const token = await new jose.SignJWT({ 
+        username: user.username, 
+        role: user.role 
+      })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('8h')
+        .sign(secret);
+
+      return c.json({
+        success: true,
+        accesstoken: token,
+        user: { username: user.username, role: user.role }
+      });
+    }
+  } catch (e) {
+    console.error('Login DB error:', e);
+  }
+  
+  // Fallback للتطوير
   if (username === 'admin' && password === 'admin123') {
     const token = await new jose.SignJWT({ username: 'admin', role: 'admin' })
       .setProtectedHeader({ alg: 'HS256' })
@@ -284,9 +398,10 @@ app.post('/api/admin/login', async (c) => {
       .setExpirationTime('8h')
       .sign(secret);
 
-    return c.json({ 
-      success: true, 
-      accesstoken: token 
+    return c.json({
+      success: true,
+      accesstoken: token,
+      user: { username: 'admin', role: 'admin' }
     });
   }
 
@@ -298,7 +413,7 @@ app.post('/api/admin/login', async (c) => {
 // Get All Students (Admin)
 app.get('/api/admin/students', authMiddleware, async (c) => {
   const db = drizzle(c.env.DB);
-  const { skip = '0', limit = '10' } = c.req.query();
+  const { skip = '0', limit = '100' } = c.req.query();
   
   try {
     const results = await db.select()
@@ -316,12 +431,47 @@ app.get('/api/admin/students', authMiddleware, async (c) => {
       subjects: student.subjects ? JSON.parse(student.subjects) : []
     }));
 
-    return c.json({ 
-      students: parsedResults, 
-      total: total?.count || 0 
+    return c.json({
+      students: parsedResults,
+      total: total?.count || 0
     });
   } catch (e) {
     return c.json({ error: 'Failed to fetch students', details: e.message }, 500);
+  }
+});
+
+// Add Student (Admin)
+app.post('/api/admin/students', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const data = await c.req.json();
+  
+  try {
+    const subjectsJson = JSON.stringify(data.subjects || []);
+    
+    await db.run(sql`
+      INSERT INTO students (
+        studentid, name, grade, average, schoolname, region,
+        educationalstageid, classname, administration, schoolcode,
+        section, subjects
+      ) VALUES (
+        ${data.studentid},
+        ${data.name},
+        ${data.grade || ''},
+        ${parseFloat(data.average) || 0},
+        ${data.schoolname || ''},
+        ${data.region || ''},
+        ${data.educationalstageid || ''},
+        ${data.classname || ''},
+        ${data.administration || ''},
+        ${data.schoolcode || ''},
+        ${data.section || ''},
+        ${subjectsJson}
+      )
+    `);
+    
+    return c.json({ success: true, message: 'تم إضافة الطالب بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to add student', details: e.message }, 500);
   }
 });
 
@@ -334,7 +484,7 @@ app.delete('/api/admin/students/:id', authMiddleware, async (c) => {
     await db.delete(students)
       .where(sql`studentid = ${id}`)
       .run();
-
+    
     return c.json({ success: true });
   } catch (e) {
     return c.json({ error: 'Failed to delete student', details: e.message }, 500);
@@ -353,72 +503,114 @@ app.delete('/api/admin/students', authMiddleware, async (c) => {
   }
 });
 
-// Upload Excel Data (Process)
-app.post('/api/students/upload', authMiddleware, async (c) => {
+// 🆕 CSV Upload Endpoint
+app.post('/api/admin/upload-csv', authMiddleware, async (c) => {
   const db = drizzle(c.env.DB);
-  const studentsData = await c.req.json();
-
-  if (!Array.isArray(studentsData) || studentsData.length === 0) {
-    return c.json({ error: 'Invalid data format' }, 400);
-  }
-
+  
   try {
-    const insertPromises = studentsData.map(student => {
-      const subjectsJson = JSON.stringify(student.subjects || []);
-      
-      return db.run(sql`
-        INSERT OR REPLACE INTO students 
-        (studentid, name, grade, average, schoolname, region, 
-         educationalstageid, classname, administration, schoolcode, 
-         section, subjects, createdat)
-        VALUES (
-          ${student.studentid},
-          ${student.name},
-          ${student.grade},
-          ${parseFloat(student.average) || 0},
-          ${student.schoolname || ''},
-          ${student.region || ''},
-          ${student.educationalstageid || ''},
-          ${student.classname || ''},
-          ${student.administration || ''},
-          ${student.schoolcode || ''},
-          ${student.section || ''},
-          ${subjectsJson},
-          ${student.createdat || new Date().toISOString()}
+    const form = await c.req.formData();
+    const file = form.get('file');
+    
+    if (!file) {
+      return c.json({ error: 'No file uploaded' }, 400);
+    }
+
+    const text = await file.text();
+    const lines = text.trim().split('\n');
+    
+    if (lines.length < 2) {
+      return c.json({ error: 'Empty file' }, 400);
+    }
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const qs = new URL(c.req.url).searchParams;
+    const qsStage = qs.get('stageid') || '';
+    const qsRegion = qs.get('region') || '';
+
+    let inserted = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+      const row = {};
+      headers.forEach((h, idx) => (row[h] = values[idx] ?? ''));
+
+      const subjectsJson = (() => {
+        if (!row.subjects) return '[]';
+        try { return JSON.stringify(JSON.parse(row.subjects)); } catch { return '[]'; }
+      })();
+
+      await db.run(sql`
+        INSERT OR REPLACE INTO students (
+          studentid, name, grade, average, schoolname, region,
+          educationalstageid, classname, administration, schoolcode, section, subjects
+        ) VALUES (
+          ${row.studentid || row.student_id || ''},
+          ${row.name || ''},
+          ${row.grade || ''},
+          ${parseFloat(row.average) || 0},
+          ${row.schoolname || row.school_name || ''},
+          ${qsRegion || row.region || ''},
+          ${qsStage || row.educationalstageid || row.stage_id || ''},
+          ${row.classname || row.class_name || ''},
+          ${row.administration || ''},
+          ${row.schoolcode || row.school_code || ''},
+          ${row.section || ''},
+          ${subjectsJson}
         )
       `);
-    });
-
-    await Promise.all(insertPromises);
-
+      inserted++;
+    }
+    
     return c.json({ 
       success: true, 
-      message: `تم رفع ${studentsData.length} طالب بنجاح`,
-      totalprocessed: studentsData.length
+      message: `تم رفع ${inserted} طالب`, 
+      total: inserted 
     });
-  } catch (error) {
-    console.error('Upload error:', error);
-    return c.json({ 
-      error: 'فشل رفع البيانات', 
-      details: error.message 
-    }, 500);
+  } catch (e) {
+    return c.json({ error: 'فشل الرفع', details: e.message }, 500);
   }
 });
 
-// Process Excel with Mapping
-app.post('/api/admin/process-excel', authMiddleware, async (c) => {
+// 🆕 JSON Bulk Import
+app.post('/api/admin/import-students', authMiddleware, async (c) => {
   const db = drizzle(c.env.DB);
-  const mapping = await c.req.json();
-  const { filehash, educationalstageid, region } = c.req.query();
-
-  // في الواقع، ستحتاج لتخزين بيانات Excel مؤقتاً
-  // هنا مثال بسيط - يفترض أن البيانات تُرسل مباشرة
   
-  return c.json({ 
-    success: true, 
-    message: 'Excel processing endpoint ready',
-    note: 'يحتاج implementation كامل مع file storage'
-  });
+  try {
+    const body = await c.req.json();
+    
+    if (!Array.isArray(body) || body.length === 0) {
+      return c.json({ error: 'Invalid payload' }, 400);
+    }
+    
+    let inserted = 0;
+    for (const row of body) {
+      const subjects = JSON.stringify(row.subjects || []);
+      
+      await db.run(sql`
+        INSERT OR REPLACE INTO students (
+          studentid, name, grade, average, schoolname, region,
+          educationalstageid, classname, administration, schoolcode, section, subjects
+        ) VALUES (
+          ${row.studentid || ''},
+          ${row.name || ''},
+          ${row.grade || ''},
+          ${parseFloat(row.average) || 0},
+          ${row.schoolname || ''},
+          ${row.region || ''},
+          ${row.educationalstageid || ''},
+          ${row.classname || ''},
+          ${row.administration || ''},
+          ${row.schoolcode || ''},
+          ${row.section || ''},
+          ${subjects}
+        )
+      `);
+      inserted++;
+    }
+    
+    return c.json({ success: true, message: `تم استيراد ${inserted} طالب` });
+  } catch (e) {
+    return c.json({ error: 'فشل الاستيراد', details: e.message }, 500);
+  }
 });
 
 // Stages Management
@@ -445,10 +637,10 @@ app.get('/api/admin/stages', authMiddleware, async (c) => {
 app.post('/api/admin/stages', authMiddleware, async (c) => {
   const db = drizzle(c.env.DB);
   const stageData = await c.req.json();
-
+  
   try {
     const regionsJson = JSON.stringify(stageData.regions || []);
-
+    
     await db.run(sql`
       INSERT INTO stages (name, nameen, description, icon, color, regions, displayorder, isactive)
       VALUES (
@@ -462,7 +654,7 @@ app.post('/api/admin/stages', authMiddleware, async (c) => {
         1
       )
     `);
-
+    
     return c.json({ success: true, message: 'تم إضافة المرحلة بنجاح' });
   } catch (e) {
     return c.json({ error: 'Failed to add stage', details: e.message }, 500);
@@ -473,12 +665,12 @@ app.put('/api/admin/stages/:id', authMiddleware, async (c) => {
   const db = drizzle(c.env.DB);
   const id = c.req.param('id');
   const stageData = await c.req.json();
-
+  
   try {
     const regionsJson = JSON.stringify(stageData.regions || []);
-
+    
     await db.run(sql`
-      UPDATE stages 
+      UPDATE stages
       SET name = ${stageData.name},
           nameen = ${stageData.nameen},
           description = ${stageData.description || ''},
@@ -488,7 +680,7 @@ app.put('/api/admin/stages/:id', authMiddleware, async (c) => {
           displayorder = ${stageData.displayorder || 0}
       WHERE id = ${id}
     `);
-
+    
     return c.json({ success: true, message: 'تم تحديث المرحلة بنجاح' });
   } catch (e) {
     return c.json({ error: 'Failed to update stage', details: e.message }, 500);
@@ -498,7 +690,7 @@ app.put('/api/admin/stages/:id', authMiddleware, async (c) => {
 app.delete('/api/admin/stages/:id', authMiddleware, async (c) => {
   const db = drizzle(c.env.DB);
   const id = c.req.param('id');
-
+  
   try {
     await db.delete(stages).where(sql`id = ${id}`).run();
     return c.json({ success: true });
@@ -508,26 +700,20 @@ app.delete('/api/admin/stages/:id', authMiddleware, async (c) => {
 });
 
 // Content Management
-app.get('/api/admin/content', authMiddleware, async (c) => {
-  // Same as public /api/content but requires auth
-  return app.fetch(new Request(c.req.url.replace('/admin/content', '/content')));
-});
-
 app.put('/api/admin/content', authMiddleware, async (c) => {
   const db = drizzle(c.env.DB);
   const contentData = await c.req.json();
-
+  
   try {
     const featuresJson = JSON.stringify(contentData.features || []);
     const contactinfoJson = JSON.stringify(contentData.contactinfo || {});
     const sociallinksJson = JSON.stringify(contentData.sociallinks || {});
 
-    // Check if content exists
     const existing = await db.select().from(content).limit(1).get();
 
     if (existing) {
       await db.run(sql`
-        UPDATE content 
+        UPDATE content
         SET pagetitle = ${contentData.pagetitle},
             metadescription = ${contentData.metadescription},
             seokeywords = ${contentData.seokeywords},
@@ -542,8 +728,8 @@ app.put('/api/admin/content', authMiddleware, async (c) => {
       `);
     } else {
       await db.run(sql`
-        INSERT INTO content 
-        (pagetitle, metadescription, seokeywords, herotitle, herosubtitle, 
+        INSERT INTO content
+        (pagetitle, metadescription, seokeywords, herotitle, herosubtitle,
          aboutsection, features, footertext, contactinfo, sociallinks)
         VALUES (
           ${contentData.pagetitle},
@@ -566,31 +752,196 @@ app.put('/api/admin/content', authMiddleware, async (c) => {
   }
 });
 
-// ==================== Health Check ====================
-app.get('/', (c) => {
-  return c.json({ 
-    status: 'ok', 
-    message: 'Student Results API is running',
-    version: '2.0',
-    endpoints: {
-      public: [
-        'GET /api/stages',
-        'POST /api/search',
-        'GET /api/content',
-        'GET /api/stats'
-      ],
-      admin: [
-        'POST /api/admin/login',
-        'GET /api/admin/students',
-        'POST /api/students/upload',
-        'DELETE /api/admin/students/:id',
-        'GET /api/admin/stages',
-        'POST /api/admin/stages',
-        'PUT /api/admin/stages/:id',
-        'DELETE /api/admin/stages/:id'
-      ]
-    }
-  });
+// FAQs Management
+app.get('/api/admin/faqs', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const results = await db.select().from(faqs).orderBy(faqs.displayorder).all();
+    return c.json(results);
+  } catch (e) {
+    return c.json([]);
+  }
+});
+
+app.post('/api/admin/faqs', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const data = await c.req.json();
+  
+  try {
+    await db.run(sql`
+      INSERT INTO faqs (question, answer, category, displayorder, isactive)
+      VALUES (${data.question}, ${data.answer}, ${data.category || ''}, ${data.displayorder || 0}, 1)
+    `);
+    return c.json({ success: true, message: 'تم إضافة السؤال بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to add FAQ', details: e.message }, 500);
+  }
+});
+
+app.put('/api/admin/faqs/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  const data = await c.req.json();
+  
+  try {
+    await db.run(sql`
+      UPDATE faqs
+      SET question = ${data.question},
+          answer = ${data.answer},
+          category = ${data.category || ''},
+          displayorder = ${data.displayorder || 0}
+      WHERE id = ${id}
+    `);
+    return c.json({ success: true, message: 'تم تحديث السؤال بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to update FAQ', details: e.message }, 500);
+  }
+});
+
+app.delete('/api/admin/faqs/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  
+  try {
+    await db.delete(faqs).where(sql`id = ${id}`).run();
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: 'Failed to delete FAQ', details: e.message }, 500);
+  }
+});
+
+// Guides Management
+app.get('/api/admin/guides', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const results = await db.select().from(guides).orderBy(guides.displayorder).all();
+    return c.json(results);
+  } catch (e) {
+    return c.json([]);
+  }
+});
+
+app.post('/api/admin/guides', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const data = await c.req.json();
+  
+  try {
+    await db.run(sql`
+      INSERT INTO guides (title, content, icon, displayorder, isactive)
+      VALUES (${data.title}, ${data.content}, ${data.icon || '📖'}, ${data.displayorder || 0}, 1)
+    `);
+    return c.json({ success: true, message: 'تم إضافة الدليل بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to add guide', details: e.message }, 500);
+  }
+});
+
+app.put('/api/admin/guides/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  const data = await c.req.json();
+  
+  try {
+    await db.run(sql`
+      UPDATE guides
+      SET title = ${data.title},
+          content = ${data.content},
+          icon = ${data.icon || '📖'},
+          displayorder = ${data.displayorder || 0}
+      WHERE id = ${id}
+    `);
+    return c.json({ success: true, message: 'تم تحديث الدليل بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to update guide', details: e.message }, 500);
+  }
+});
+
+app.delete('/api/admin/guides/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  
+  try {
+    await db.delete(guides).where(sql`id = ${id}`).run();
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: 'Failed to delete guide', details: e.message }, 500);
+  }
+});
+
+// News Management
+app.get('/api/admin/news', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  
+  try {
+    const results = await db.select().from(news).orderBy(sql`publishdate DESC`).all();
+    return c.json(results);
+  } catch (e) {
+    return c.json([]);
+  }
+});
+
+app.post('/api/admin/news', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const data = await c.req.json();
+  
+  try {
+    await db.run(sql`
+      INSERT INTO news (title, content, publishdate, isactive)
+      VALUES (${data.title}, ${data.content}, ${data.publishdate || new Date().toISOString()}, 1)
+    `);
+    return c.json({ success: true, message: 'تم إضافة الخبر بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to add news', details: e.message }, 500);
+  }
+});
+
+app.put('/api/admin/news/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  const data = await c.req.json();
+  
+  try {
+    await db.run(sql`
+      UPDATE news
+      SET title = ${data.title},
+          content = ${data.content},
+          publishdate = ${data.publishdate || new Date().toISOString()}
+      WHERE id = ${id}
+    `);
+    return c.json({ success: true, message: 'تم تحديث الخبر بنجاح' });
+  } catch (e) {
+    return c.json({ error: 'Failed to update news', details: e.message }, 500);
+  }
+});
+
+app.delete('/api/admin/news/:id', authMiddleware, async (c) => {
+  const db = drizzle(c.env.DB);
+  const id = c.req.param('id');
+  
+  try {
+    await db.delete(news).where(sql`id = ${id}`).run();
+    return c.json({ success: true });
+  } catch (e) {
+    return c.json({ error: 'Failed to delete news', details: e.message }, 500);
+  }
+});
+
+// Alias for admin upload endpoint -> proxy to public /api/students/upload
+app.post('/api/admin/students/upload', authMiddleware, async (c) => {
+ try {
+ const targetUrl = c.req.url.replace('/api/admin/students/upload', '/api/students/upload');
+ const forwarded = new Request(targetUrl, {
+ method: c.req.method,
+ headers: c.req.headers,
+ body: c.req.body
+ });
+
+ return app.fetch(forwarded);
+ } catch (e) {
+ return c.json({ error: 'Failed to proxy upload', details: e.message },500);
+ }
 });
 
 export default app;
